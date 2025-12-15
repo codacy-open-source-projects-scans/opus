@@ -216,6 +216,29 @@ static const int silk16_test[][4] = {
       {MODE_SILK_ONLY, OPUS_BANDWIDTH_WIDEBAND, 480,   2}
 };
 
+static const int silk_bw_switch_test[][4] = {
+    {MODE_SILK_ONLY, OPUS_BANDWIDTH_WIDEBAND,       960, 1},
+    {MODE_SILK_ONLY, OPUS_BANDWIDTH_NARROWBAND,     960, 1},
+    {MODE_SILK_ONLY, OPUS_BANDWIDTH_MEDIUMBAND,     960, 1},
+    {MODE_SILK_ONLY, OPUS_BANDWIDTH_SUPERWIDEBAND,  960, 1},
+    {MODE_SILK_ONLY, OPUS_BANDWIDTH_FULLBAND,       960, 1},
+    {MODE_SILK_ONLY, OPUS_BANDWIDTH_WIDEBAND,       960, 2},
+    {MODE_SILK_ONLY, OPUS_BANDWIDTH_NARROWBAND,     960, 2},
+    {MODE_SILK_ONLY, OPUS_BANDWIDTH_MEDIUMBAND,     960, 2},
+    {MODE_SILK_ONLY, OPUS_BANDWIDTH_SUPERWIDEBAND,  960, 2},
+    {MODE_SILK_ONLY, OPUS_BANDWIDTH_FULLBAND,       960, 2},
+    {MODE_SILK_ONLY, OPUS_BANDWIDTH_WIDEBAND,       480, 1},
+    {MODE_SILK_ONLY, OPUS_BANDWIDTH_NARROWBAND,     480, 1},
+    {MODE_SILK_ONLY, OPUS_BANDWIDTH_MEDIUMBAND,     480, 1},
+    {MODE_SILK_ONLY, OPUS_BANDWIDTH_SUPERWIDEBAND,  480, 1},
+    {MODE_SILK_ONLY, OPUS_BANDWIDTH_FULLBAND,       480, 1},
+    {MODE_SILK_ONLY, OPUS_BANDWIDTH_WIDEBAND,       480, 2},
+    {MODE_SILK_ONLY, OPUS_BANDWIDTH_NARROWBAND,     480, 2},
+    {MODE_SILK_ONLY, OPUS_BANDWIDTH_MEDIUMBAND,     480, 2},
+    {MODE_SILK_ONLY, OPUS_BANDWIDTH_SUPERWIDEBAND,  480, 2},
+    {MODE_SILK_ONLY, OPUS_BANDWIDTH_FULLBAND,       480, 2}
+};
+
 static const int hybrid24_test[][4] = {
       {MODE_SILK_ONLY, OPUS_BANDWIDTH_SUPERWIDEBAND, 960, 1},
       {MODE_SILK_ONLY, OPUS_BANDWIDTH_SUPERWIDEBAND, 480, 1},
@@ -274,10 +297,10 @@ static const int celt_test[][4] = {
 };
 
 static const int celt_hq_test[][4] = {
-      {MODE_CELT_ONLY, OPUS_BANDWIDTH_FULLBAND,      960, 2},
-      {MODE_CELT_ONLY, OPUS_BANDWIDTH_FULLBAND,      480, 2},
-      {MODE_CELT_ONLY, OPUS_BANDWIDTH_FULLBAND,      240, 2},
       {MODE_CELT_ONLY, OPUS_BANDWIDTH_FULLBAND,      120, 2},
+      {MODE_CELT_ONLY, OPUS_BANDWIDTH_FULLBAND,      240, 2},
+      {MODE_CELT_ONLY, OPUS_BANDWIDTH_FULLBAND,      480, 2},
+      {MODE_CELT_ONLY, OPUS_BANDWIDTH_FULLBAND,      960, 2},
 };
 
 #if 0 /* This is a hack that replaces the normal encoder/decoder with the multistream version */
@@ -691,6 +714,11 @@ int main(int argc, char *argv[])
             mode_list = silk16_test;
             nb_modes_in_list = 8;
             args++;
+        } else if( strcmp( argv[ args ], "-silk_bw_switch_test" ) == 0 ) {
+            check_encoder_option(decode_only, "-silk_bw_switch_test");
+            mode_list = silk_bw_switch_test;
+            nb_modes_in_list = 20;
+            args++;
         } else if( strcmp( argv[ args ], "-hybrid24k_test" ) == 0 ) {
             check_encoder_option(decode_only, "-hybrid24k_test");
             mode_list = hybrid24_test;
@@ -759,11 +787,14 @@ int main(int argc, char *argv[])
     if (mode_list)
     {
        int size;
+       int sample_size=2;
+       if (format == FORMAT_S24_LE) sample_size=3;
+       else if (format == FORMAT_F32_LE) sample_size=4;
        fseek(fin, 0, SEEK_END);
        size = ftell(fin);
        fprintf(stderr, "File size is %d bytes\n", size);
        fseek(fin, 0, SEEK_SET);
-       mode_switch_time = size/sizeof(short)/channels/nb_modes_in_list;
+       mode_switch_time = size/sample_size/channels/nb_modes_in_list;
        fprintf(stderr, "Switching mode every %d samples\n", mode_switch_time);
     }
 
@@ -957,7 +988,7 @@ int main(int argc, char *argv[])
                 opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(mode_list[curr_mode][1]));
                 opus_encoder_ctl(enc, OPUS_SET_FORCE_MODE(mode_list[curr_mode][0]));
                 opus_encoder_ctl(enc, OPUS_SET_FORCE_CHANNELS(mode_list[curr_mode][3]));
-                frame_size = mode_list[curr_mode][2];
+                frame_size = mode_list[curr_mode][2]*sampling_rate/48000;
             }
 #ifdef ENABLE_OSCE_TRAINING_DATA
             if (silk_random_switching)
@@ -1135,9 +1166,10 @@ int main(int argc, char *argv[])
                           for(i=0;i<(output_samples-skip)*channels;i++)
                           {
                              opus_int32 s;
-                             s=(out[i+(skip*channels)]+128)>>8;
-                             if (s > 32767) s = 32767;
-                             if (s < -32767) s = -32767;
+                             s=out[i+(skip*channels)];
+                             if (s > 0x007fff00) s = 0x007fff00;
+                             if (s < -0x007fff00) s = -0x007fff00;
+                             s=(s+128)>>8;
                              fbytes[2*i]=s&0xFF;
                              fbytes[2*i+1]=(s>>8)&0xFF;
                           }
@@ -1146,8 +1178,8 @@ int main(int argc, char *argv[])
                           {
                              opus_int32 s;
                              s=out[i+(skip*channels)];
-                             if (s > 8388607) s = 8388607;
-                             if (s < -8388607) s = -8388607;
+                             if (s > 0x007fffff) s = 0x007fffff;
+                             if (s < -0x007fffff) s = -0x007fffff;
                              fbytes[3*i]=s&0xFF;
                              fbytes[3*i+1]=(s>>8)&0xFF;
                              fbytes[3*i+2]=(s>>16)&0xFF;
