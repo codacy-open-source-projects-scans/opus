@@ -766,6 +766,7 @@ void downmix_float(const void *_x, opus_val32 *y, int subframe, int offset, int 
             y[j] += FLOAT2SIG(x[(j+offset)*C+c]);
       }
    }
+#ifndef FIXED_POINT
    /* Cap signal to +6 dBFS to avoid problems in the analysis. */
    for (j=0;j<subframe;j++)
    {
@@ -773,6 +774,7 @@ void downmix_float(const void *_x, opus_val32 *y, int subframe, int offset, int 
       if (y[j] >  65536.f) y[j] =  65536.f;
       if (celt_isnan(y[j])) y[j] = 0;
    }
+#endif
 }
 #endif
 
@@ -857,7 +859,9 @@ opus_val16 compute_stereo_width(const opus_res *pcm, int frame_size, opus_int32 
    int frame_rate;
    int i;
    opus_val16 short_alpha;
-
+#ifdef FIXED_POINT
+   int shift = celt_ilog2(frame_size)-2;
+#endif
    frame_rate = Fs/frame_size;
    short_alpha = Q15ONE - MULT16_16(25, Q15ONE)/IMAX(50,frame_rate);
    xx=xy=yy=0;
@@ -891,9 +895,9 @@ opus_val16 compute_stereo_width(const opus_res *pcm, int frame_size, opus_int32 
       pxy += SHR32(MULT16_16(x,y),2);
       pyy += SHR32(MULT16_16(y,y),2);
 
-      xx += SHR32(pxx, 10);
-      xy += SHR32(pxy, 10);
-      yy += SHR32(pyy, 10);
+      xx += SHR32(pxx, shift);
+      xy += SHR32(pxy, shift);
+      yy += SHR32(pyy, shift);
    }
 #ifndef FIXED_POINT
    if (!(xx < 1e9f) || celt_isnan(xx) || !(yy < 1e9f) || celt_isnan(yy))
@@ -1920,7 +1924,7 @@ static opus_int32 opus_encode_frame_native(OpusEncoder *st, const opus_res *pcm,
     else if (st->mode == MODE_CELT_ONLY) {
        opus_val32 noise_energy = compute_frame_energy(pcm, frame_size, st->channels, st->arch);
        /* Boosting peak energy a bit because we didn't just average the active frames. */
-       activity = 2*st->peak_signal_energy < (QCONST16(PSEUDO_SNR_THRESHOLD, 0) * (opus_val64)noise_energy);
+       activity = st->peak_signal_energy < (QCONST16(PSEUDO_SNR_THRESHOLD, 0) * (opus_val64)HALF32(noise_energy));
     }
 
     /* For the first frame at a new SILK bandwidth */
